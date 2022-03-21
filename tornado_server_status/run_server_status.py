@@ -2,53 +2,81 @@
 
 import os
 import sys
-import logging
 import json
 import time
 import asyncio
+from collections import defaultdict
+from click import option
 
-import tornado.httpserver
 import tornado.ioloop
-import tornado.wsgi
 import tornado.web
-from urllib.parse import urlparse
-from tornado.options import define, options, parse_command_line
+from tornado.options import define, options
+from tornado.options import parse_command_line, parse_config_file
 
-import tornado.iostream
-import tornado.httpclient
-import tornado.httputil
 import asyncssh
+
+import traceback
 
 from client_info import get_stats_data
 
+
 class APIhandler(tornado.web.RequestHandler):
-    async def get_server_status(self, hostname, username, port):
-        async with asyncssh.connect(hostname, username=username, port=port) as conn:
-            data = await get_stats_data(conn)
+    async def get_server_status(self, hostname, first_query=None):
+        data = {}
         data['name'] = hostname
-        data['type'] = 'KVM'
+        data['type'] = 'Unkown'
         data['custom'] = ""
-        data['location'] = 'US'
+        data['location'] = 'Unkown'
         data['host'] = None
-        data['online4'] = True
-        data['online6'] = True
+        data['online4'] = False
+        data['online6'] = False
+        data.update(self.application.first_query_results[hostname])
+        try:
+            conn = self.application.conns[hostname]
+            if conn:
+                return_data = await asyncio.wait_for(get_stats_data(conn, first_query=first_query), timeout=options.ssh_query_timeout)
+                data['online4'] = True
+                data['online6'] = True
+                data.update(return_data)
+        except Exception as e:
+            print(hostname, e, 43)
         return data
 
     async def get(self):
-        hostname = '10.208.63.54'
-        username = 'huangjunjie'
-        port = 22
-        servers = [
-            ('10.208.63.54', 'huangjunjie', 22),
-            ('91.200.242.105', 'h12345jack', 22),
-        ]
-        datas  = []
+        # 尝试建立链接，如果有链接，则直接返回链接，否则
+        # idea from https://github.com/ronf/asyncssh/issues/270
+        servers = self.application.servers
+        tasks = []
         for server in servers:
-            hostname, username, port = server
-            datas.append(
-                self.get_server_status(hostname, username, port)
-            )       
-        datas = await asyncio.gather(*datas)
+            host, username, port, password = '127.0.0.1', 'root', '22', None
+            try:
+                if len(server) == 1:
+                    host = server
+                elif len(server) == 2:
+                    host, username = server
+                elif len(server) == 3:
+                    host, username, port = server
+                elif len(server) == 4:
+                    host, username, port, password = server
+                conn = self.application.conns[host]
+                if not conn:
+                    last_failed_t = self.application.failed_hosts[host]
+                    now = time.time()
+                    if (now - last_failed_t) > options.ssh_connected_retry_interval:
+                        conn = await asyncio.wait_for(asyncssh.connect(host=host, username=username, port=port, password=password, known_hosts=None), timeout=options.ssh_connected_timeout)
+                        self.application.conns[host] = conn
+                        first_query_res = await self.get_server_status(host, first_query=True)
+                        self.application.first_query_results[host] = first_query_res
+                        print(host, 'connected!')
+            except Exception as e:
+                self.application.failed_hosts[host] = time.time()
+                print(host, e)
+            
+            tasks.append(
+                self.get_server_status(host)
+            )
+
+        datas = await asyncio.gather(*tasks)
         res = {
             'servers': datas,
             'updated': f'{int(time.time())}'
@@ -65,7 +93,8 @@ class MainHandler(BaseHandler):
     @tornado.web.authenticated
     def get(self):
         self.render('templates/web/index.html')
-        
+
+
 class LoginHandler(BaseHandler):
     def get(self):
         self.write('<html><body><form action="/login" method="post">'
@@ -81,28 +110,40 @@ class LoginHandler(BaseHandler):
             self.set_secure_cookie("user", username)
         self.redirect("/")
 
+
 class LogoutHandler(BaseHandler):
     def get(self):
         self.clear_all_cookies()
         self.redirect("/")
 
 
-
 class ServerStatusApplication(tornado.web.Application):
-    conns = {}
+    conns = defaultdict(lambda: None)
+    failed_hosts = defaultdict(int)
+    severs = []
+    first_query_results = defaultdict(dict)
 
     def __init__(self, url_patterns,  **kwags):
-
-
+        self.servers = options.servers
         tornado.web.Application.__init__(self, url_patterns, **kwags)
 
 
 if __name__ == "__main__":
     # path to your settings module
-    define("port", default=18888, help="run on the given port", type=int)
+    define("port", default=21388, help="run on the given port", type=int)
     define("config", default=None, help="tornado config file")
     define("debug", default=False, help="debug mode")
-    define("ssh_connected_timeout", default=5.0, help="ssh connected timeout, default: 5.0")
+    define("servers", default=[('127.0.0.1', 'root', 22)], help="ssh connected timeout, default: 5.0")
+    define("ssh_connected_timeout", default=5.0, help="ssh connect timeout, default: 5.0")
+    define("ssh_connected_retry_interval", default=60.0, help="ssh connect retry interval, default: 60.0")
+    define("ssh_query_timeout", default=5.0, help="ssh query timeout, default: 5.0")
+
+    parse_command_line()
+    if options.config:
+        parse_config_file(options.config)
+    if options.debug:
+        tornado.log.enable_pretty_logging()
+    print(options.servers)
 
     tornado_app = ServerStatusApplication(
         [
@@ -117,9 +158,7 @@ if __name__ == "__main__":
         login_url='/login',
         cookie_secret="Bj0aRCDg8fPyCNsA9Aub8i32U"
     )
-    parse_command_line()
-    if options.debug:
-        tornado.log.enable_pretty_logging()
+
     print(f'Runining on: http://localhost:{options.port}')
     tornado_app.listen(options.port, address='0')
     tornado.ioloop.IOLoop.current().start()

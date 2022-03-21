@@ -44,7 +44,6 @@ async def get_uptime(conn):
 async def get_time(conn):
     cmdline = 'cat /proc/stat'
     out = await run_cmdline_get_out(conn, cmdline)
-    print(out)
     time_list = out.split(' ')[2:6]
     for i in range(len(time_list)):
         time_list[i] = int(time_list[i])
@@ -254,11 +253,13 @@ echo $virt
     out = await run_cmdline_get_out(conn, cmdline)
     return out.strip()
 
+
 async def get_ip_country(conn):
     py_code = "import json; import urllib.request; f=urllib.request.urlopen('http://ipinfo.io');jd=json.loads(f.read());f.close();print(jd['country'])"
-    cmdline = f'python -c {py_code}'
+    cmdline = f'python3 -c "{py_code}"'
     out = await run_cmdline_get_out(conn, cmdline)
-    return out
+    return out.strip()
+
 
 async def get_stats_data(conn, first_query=True):
     tasks = []
@@ -303,7 +304,7 @@ async def get_stats_data(conn, first_query=True):
         results.append('type')
 
         tasks.append(get_ip_country(conn))
-        results.append('country')
+        results.append('location')
 
 
     R_s = await asyncio.gather(*tasks)
