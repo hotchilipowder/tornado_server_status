@@ -89,7 +89,11 @@ class LogoutHandler(BaseHandler):
 
 
 class ServerStatusApplication(tornado.web.Application):
+    conns = {}
+
     def __init__(self, url_patterns,  **kwags):
+
+
         tornado.web.Application.__init__(self, url_patterns, **kwags)
 
 
@@ -98,24 +102,24 @@ if __name__ == "__main__":
     define("port", default=18888, help="run on the given port", type=int)
     define("config", default=None, help="tornado config file")
     define("debug", default=False, help="debug mode")
+    define("ssh_connected_timeout", default=5.0, help="ssh connected timeout, default: 5.0")
 
     tornado_app = ServerStatusApplication(
         [
-            # python manage.py collectstatic
             (r'/ss_static/(.*)', tornado.web.StaticFileHandler, {"path": './templates/web'}),
             (r'/json/.*', APIhandler),
             (r"/login", LoginHandler),
             (r'/logout', LogoutHandler),
             (r'.*', MainHandler),
         ],
-        debug=False,
-        autoreload=True,
+        debug=options.debug,
+        autoreload=options.debug,
         login_url='/login',
-        cookie_secret="__TODO:_GENERATE_YOUR_OWN_RANDOM_VALUE_HERE__"
+        cookie_secret="Bj0aRCDg8fPyCNsA9Aub8i32U"
     )
     parse_command_line()
-    # if options.debug:
-    #     tornado.log.enable_pretty_logging()
+    if options.debug:
+        tornado.log.enable_pretty_logging()
     print(f'Runining on: http://localhost:{options.port}')
     tornado_app.listen(options.port, address='0')
     tornado.ioloop.IOLoop.current().start()

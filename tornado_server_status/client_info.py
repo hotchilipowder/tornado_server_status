@@ -9,14 +9,15 @@
 import os
 import re
 import time
+import logging
 from collections import defaultdict
 
 import asyncio
 import asyncssh
 
+asyncssh.logging.set_log_level(logging.WARNING)
 
-TIMEOUT = 30.0
-
+TIMEOUT = 10.0
 
 async def run_cmdline_get_out(conn, cmdline, timeout=TIMEOUT):
     result = await asyncio.wait_for(conn.run(cmdline), timeout=timeout)
@@ -253,8 +254,11 @@ echo $virt
     out = await run_cmdline_get_out(conn, cmdline)
     return out.strip()
 
-
-
+async def get_ip_country(conn):
+    py_code = "import json; import urllib.request; f=urllib.request.urlopen('http://ipinfo.io');jd=json.loads(f.read());f.close();print(jd['country'])"
+    cmdline = f'python -c {py_code}'
+    out = await run_cmdline_get_out(conn, cmdline)
+    return out
 
 async def get_stats_data(conn, first_query=True):
     tasks = []
@@ -298,6 +302,9 @@ async def get_stats_data(conn, first_query=True):
         tasks.append(get_virt_type(conn))
         results.append('type')
 
+        tasks.append(get_ip_country(conn))
+        results.append('country')
+
 
     R_s = await asyncio.gather(*tasks)
     for l, r in zip(results, R_s):
@@ -321,7 +328,6 @@ async def test():
     async with asyncssh.connect(hostname, username=username, port=port, known_hosts=None) as conn:
         data = await get_stats_data(conn)
         print(data)
-
 
 
 if __name__ == '__main__':
