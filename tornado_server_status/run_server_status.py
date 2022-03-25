@@ -5,7 +5,6 @@ import logging
 
 import asyncio
 from collections import defaultdict
-from click import option
 
 import tornado.ioloop
 import tornado.web
@@ -15,11 +14,10 @@ from tornado.options import parse_command_line, parse_config_file
 import asyncssh
 import traceback
 
-from client_info import get_stats_data
+from .client_info import get_stats_data
 
 import tornado.ioloop
 import tornado.web
-
 
 
 class APIhandler(tornado.web.RequestHandler):
@@ -150,7 +148,7 @@ class ServerStatusApplication(tornado.web.Application):
         tornado.web.Application.__init__(self, url_patterns, **kwags)
 
 
-if __name__ == "__main__":
+def main():
     # path to your settings module
     define("port", default=21388, help="run on the given port", type=int)
     define("config", default=None, help="tornado config file")
@@ -185,3 +183,6 @@ if __name__ == "__main__":
     print(f'Runining on: http://localhost:{options.port}')
     tornado_app.listen(options.port, address='0')
     tornado.ioloop.IOLoop.current().start()
+
+if __name__ == "__main__":
+    main()
