@@ -57,6 +57,9 @@
 
 <body>
 <div class="container" id="login-in">
+    {% if error_message %}
+    <div class="alert alert-danger" role="alert">{{ error_message }}</div>
+    {% end %}
     <div class="row" id="form">
             <h2 class="text-center">Login In</h2>
             <div class="account-wall">

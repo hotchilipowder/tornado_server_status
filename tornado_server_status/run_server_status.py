@@ -2,6 +2,7 @@
 import os
 import time
 import logging
+import pkgutil
 
 import asyncio
 from collections import defaultdict
@@ -19,9 +20,10 @@ from .client_info import get_stats_data
 import tornado.ioloop
 import tornado.web
 
+from pkg_resources import resource_string
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 
 
 class APIhandler(tornado.web.RequestHandler):
@@ -48,7 +50,6 @@ class APIhandler(tornado.web.RequestHandler):
                 data.update(return_data)
         except Exception as e:
             if options.debug:
-                print(conn, 91)
                 traceback.print_exc()
                 logging.exception(e)
         return data
@@ -117,22 +118,27 @@ class BaseHandler(tornado.web.RequestHandler):
 class MainHandler(BaseHandler):
     @tornado.web.authenticated
     def get(self):
-        self.render('templates/web/index.html')
+        html_path = os.path.join(BASE_DIR, 'templates/web/index.html')
+        self.render(html_path)
 
 
 class LoginHandler(BaseHandler):
 
     def get(self):
-        self.render('templates/web/login.html')
+        error_message = ""
+        html_path = os.path.join(BASE_DIR, 'templates/web/login.html')
+        self.render(html_path, error_message=error_message)
 
     def post(self):
+        error_message = "Wrong name or password"
         username = self.get_argument("name", "")
         password = self.get_argument("password", "")
         if username == options.username and password == options.password:
             self.set_secure_cookie("user", username)
             self.redirect('/')
         else:
-            self.render('templates/web/login.html')
+            html_path = os.path.join(BASE_DIR, 'templates/web/login.html')
+            self.render(html_path, error_message=error_message)
 
 
 class LogoutHandler(BaseHandler):
@@ -172,6 +178,7 @@ def main():
         tornado.log.enable_pretty_logging()
 
     static_dir = os.path.join(BASE_DIR, './templates/web')
+
     tornado_app = ServerStatusApplication(
         [
             (r'/ss_static/(.*)', tornado.web.StaticFileHandler, {"path": static_dir}),
