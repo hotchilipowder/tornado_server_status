@@ -17,10 +17,10 @@ import asyncssh
 
 asyncssh.logging.set_log_level(logging.WARNING)
 
-TIMEOUT = 10.0
+TIMEOUT = 100.0
 
 async def run_cmdline_get_out(conn, cmdline, timeout=TIMEOUT):
-    result = await asyncio.wait_for(conn.run(cmdline), timeout=timeout)
+    result = await asyncio.wait_for(conn.run(cmdline), timeout=None)
     return result.stdout
 
 
@@ -30,10 +30,10 @@ async def get_uptime(conn):
 
     uptime = result.splitlines()[0].split('.', 2)
     uptime = int(uptime[0])
-    days = int(uptime/60.0/60.0/24.0)
-    hours = int(uptime/60.0/60.0)
-    mins  = int(uptime/60.0 % 60)
-    secs  = int(uptime % 60)
+    days   = int(uptime/60.0/60.0/24.0)
+    hours  = int(uptime/60.0/60.0)
+    mins   = int(uptime/60.0 % 60)
+    secs   = int(uptime % 60)
 
     if days > 0:
         return f'{days} 天'
@@ -52,16 +52,17 @@ async def get_time(conn):
 
 async def get_cpu(conn):
     # TODO change to multiple cpu 
+    interval = 0.1
     x = await get_time(conn)
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(interval)
     y = await get_time(conn)
     for i in range(len(x)):
-        y[i] -= x[i]
+        y[i] = (y[i] - x[i])
     t = y
     st = sum(t)
     if st == 0:
         st = 1
-    result = 100-(t[len(t)-1]*100.00/st)
+    result = 100-(t[-1]*100.00/st)
     return round(result, 1)
 
 
@@ -126,7 +127,7 @@ async def get_net_speed(conn):
         'netrx': [0.0],
         'nettx': [0.0],
         'clock': [0.0],
-        'diff' : [0.0],
+         'diff': [0.0],
         'avgrx': [0],
         'avgtx': [0]
     }
@@ -187,7 +188,7 @@ async def get_tupd(conn):
     d = int(s[:-1])-2
     return t, u, p, d
 
-# async get_ping_thread(conn):
+
 
 async def get_virt_type(conn):
     cmdline = """
@@ -258,7 +259,8 @@ async def get_ip_country(conn):
     py_code = "import json; import urllib.request; f=urllib.request.urlopen('http://ipinfo.io');jd=json.loads(f.read());f.close();print(jd['country'])"
     cmdline = f'python3 -c "{py_code}"'
     out = await run_cmdline_get_out(conn, cmdline)
-    return out.strip()
+    out = out.strip() if len(out.strip()) else 'Unknown'
+    return out
 
 
 async def get_stats_data(conn, first_query=True):

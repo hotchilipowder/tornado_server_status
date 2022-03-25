@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 
-import os
-import sys
-import json
 import time
+import logging
+
 import asyncio
 from collections import defaultdict
 from click import option
@@ -14,32 +13,42 @@ from tornado.options import define, options
 from tornado.options import parse_command_line, parse_config_file
 
 import asyncssh
-
 import traceback
 
 from client_info import get_stats_data
 
+import tornado.ioloop
+import tornado.web
+
+
 
 class APIhandler(tornado.web.RequestHandler):
-    async def get_server_status(self, hostname, first_query=None):
+
+    async def get_server_status(self, host, first_query=None):
         data = {}
-        data['name'] = hostname
+        data['name'] = host
         data['type'] = 'Unkown'
         data['custom'] = ""
         data['location'] = 'Unkown'
         data['host'] = None
         data['online4'] = False
         data['online6'] = False
-        data.update(self.application.first_query_results[hostname])
+        data.update(self.application.first_query_results[host])
         try:
-            conn = self.application.conns[hostname]
-            if conn:
-                return_data = await asyncio.wait_for(get_stats_data(conn, first_query=first_query), timeout=options.ssh_query_timeout)
+            conn = self.application.conns.get(host)
+            if not conn is None:
+                return_data = await asyncio.wait_for(
+                    get_stats_data(conn, first_query=first_query),
+                    timeout=options.ssh_query_timeout
+                )
                 data['online4'] = True
                 data['online6'] = True
                 data.update(return_data)
         except Exception as e:
-            print(hostname, e, 43)
+            if options.debug:
+                print(conn, 91)
+                traceback.print_exc()
+                logging.exception(e)
         return data
 
     async def get(self):
@@ -58,20 +67,32 @@ class APIhandler(tornado.web.RequestHandler):
                     host, username, port = server
                 elif len(server) == 4:
                     host, username, port, password = server
-                conn = self.application.conns[host]
+                conn = self.application.conns.get(host)
                 if not conn:
                     last_failed_t = self.application.failed_hosts[host]
                     now = time.time()
-                    if (now - last_failed_t) > options.ssh_connected_retry_interval:
-                        conn = await asyncio.wait_for(asyncssh.connect(host=host, username=username, port=port, password=password, known_hosts=None), timeout=options.ssh_connected_timeout)
+                    interval = (now - last_failed_t)
+                    if interval > options.ssh_connected_retry_interval:
+                        conn = await asyncio.wait_for(
+                            asyncssh.connect(
+                                host=host, username=username, port=port,
+                                password=password, known_hosts=None
+                            ),
+                            timeout=options.ssh_connected_timeout
+                        )
                         self.application.conns[host] = conn
-                        first_query_res = await self.get_server_status(host, first_query=True)
-                        self.application.first_query_results[host] = first_query_res
-                        print(host, 'connected!')
+                        first_query_res = await self.get_server_status(
+                                            host, first_query=True
+                                        )
+                        assert first_query_res['online4']
+                        if first_query_res['online4']:
+                            self.application.first_query_results[host] = first_query_res
+                            print(host, 'connected!')
             except Exception as e:
                 self.application.failed_hosts[host] = time.time()
-                print(host, e)
-            
+                if options.debug:
+                    logging.exception(e)
+
             tasks.append(
                 self.get_server_status(host)
             )
@@ -86,6 +107,8 @@ class APIhandler(tornado.web.RequestHandler):
 
 class BaseHandler(tornado.web.RequestHandler):
     def get_current_user(self):
+        if options.password is None:
+            return True
         return self.get_secure_cookie("user")
 
 
@@ -96,19 +119,18 @@ class MainHandler(BaseHandler):
 
 
 class LoginHandler(BaseHandler):
+
     def get(self):
-        self.write('<html><body><form action="/login" method="post">'
-                   'Username: <input type="text" name="name">'
-                   'Password: <input type="password" name="password">'
-                   '<input type="submit" value="Sign in">'
-                   '</form></body></html>')
+        self.render('templates/web/login.html')
 
     def post(self):
-        username = self.get_argument("name")
-        password = self.get_argument("password")
-        if username == 'admin' and password == 'admin':
+        username = self.get_argument("name", "")
+        password = self.get_argument("password", "")
+        if username == options.username and password == options.password:
             self.set_secure_cookie("user", username)
-        self.redirect("/")
+            self.redirect('/')
+        else:
+            self.render('templates/web/login.html')
 
 
 class LogoutHandler(BaseHandler):
@@ -137,13 +159,14 @@ if __name__ == "__main__":
     define("ssh_connected_timeout", default=5.0, help="ssh connect timeout, default: 5.0")
     define("ssh_connected_retry_interval", default=60.0, help="ssh connect retry interval, default: 60.0")
     define("ssh_query_timeout", default=5.0, help="ssh query timeout, default: 5.0")
+    define("username", default=None, help="username")
+    define("password", default=None, help="password")
 
     parse_command_line()
     if options.config:
         parse_config_file(options.config)
     if options.debug:
         tornado.log.enable_pretty_logging()
-    print(options.servers)
 
     tornado_app = ServerStatusApplication(
         [
