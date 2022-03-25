@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+import os
 import time
 import logging
 
@@ -18,6 +18,10 @@ from .client_info import get_stats_data
 
 import tornado.ioloop
 import tornado.web
+
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 
 class APIhandler(tornado.web.RequestHandler):
@@ -160,15 +164,17 @@ def main():
     define("username", default=None, help="username")
     define("password", default=None, help="password")
 
+
     parse_command_line()
     if options.config:
         parse_config_file(options.config)
     if options.debug:
         tornado.log.enable_pretty_logging()
 
+    static_dir = os.path.join(BASE_DIR, './templates/web')
     tornado_app = ServerStatusApplication(
         [
-            (r'/ss_static/(.*)', tornado.web.StaticFileHandler, {"path": './templates/web'}),
+            (r'/ss_static/(.*)', tornado.web.StaticFileHandler, {"path": static_dir}),
             (r'/json/.*', APIhandler),
             (r"/login", LoginHandler),
             (r'/logout', LogoutHandler),
